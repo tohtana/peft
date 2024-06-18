@@ -1,6 +1,26 @@
-accelerate launch --main_process_ip 10.16.24.61 --main_process_port 12345 --num_machines 2 --num_processes 16 --config_file "/workspace/peft/examples/sft/configs/fsdp_config_qlora.yaml"  train.py \
+HOST_IP=$1
+NUM_NODES=$2
+NUM_PROCESSES=$3
+
+export NCCL_DEBUG=WARN
+
+echo "HOST_IP: ${HOST_IP}"
+echo "NUM_NODES: ${NUM_NODES}"
+echo "NUM_PROCESSES: ${NUM_PROCESSES}"
+
+MACHINE_RANK=$(hostname | sed 's/[^0-9]*//g')
+
+cat configs/fsdp_config.yaml.template \
+| sed "s/__MACHINE_RANK__/${MACHINE_RANK}/g" \
+| sed "s/__NUM_MACHINES__/${NUM_NODES}/g" \
+| sed "s/__NUM_PROCESSES__/${NUM_PROCESSES}/g" \
+> configs/fsdp_config.yaml
+
+/home/aiscuser/.local/bin/accelerate launch --main_process_ip ${HOST_IP} --main_process_port 12345 \
+--num_machines ${NUM_NODES} --num_processes ${NUM_PROCESSES} --machine_rank ${MACHINE_RANK} \
+--config_file "configs/fsdp_config.yaml"  train.py \
 --seed 100 \
---model_name_or_path "meta-llama/Meta-Llama-3-8B" \
+--model_name_or_path "/blob/projects/ds_rlhf/models/Meta-Llama-3-70B" \
 --dataset_name "smangrul/ultrachat-10k-chatml" \
 --chat_template_format "chatml" \
 --add_special_tokens False \
@@ -13,7 +33,6 @@ accelerate launch --main_process_ip 10.16.24.61 --main_process_port 12345 --num_
 --logging_strategy "steps" \
 --evaluation_strategy "epoch" \
 --save_strategy "epoch" \
---push_to_hub \
 --hub_private_repo True \
 --hub_strategy "every_save" \
 --bf16 True \
@@ -24,7 +43,7 @@ accelerate launch --main_process_ip 10.16.24.61 --main_process_port 12345 --num_
 --warmup_ratio 0.0 \
 --max_grad_norm 1.0 \
 --output_dir "llama-sft-qlora-fsdp" \
---per_device_train_batch_size 2 \
+--per_device_train_batch_size 1 \
 --per_device_eval_batch_size 2 \
 --gradient_accumulation_steps 2 \
 --gradient_checkpointing True \
@@ -32,11 +51,5 @@ accelerate launch --main_process_ip 10.16.24.61 --main_process_port 12345 --num_
 --dataset_text_field "content" \
 --use_flash_attn True \
 --use_peft_lora False \
-#--lora_r 8 \
-#--lora_alpha 16 \
-#--lora_dropout 0.1 \
-#--lora_target_modules "all-linear" \
 --use_4bit_quantization False \
 --use_nested_quant False \
-#--bnb_4bit_compute_dtype "bfloat16" \
-#--bnb_4bit_quant_storage_dtype "bfloat16"
