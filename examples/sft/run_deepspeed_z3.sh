@@ -1,5 +1,22 @@
-/home/aiscuser/.local/bin/accelerate launch --main_process_ip 10.8.35.136 --main_process_port 12345 \
---num_machines 1 --num_processes 8 --config_file "configs/deepspeed_config_z3_qlora.yaml"  train.py \
+HOST_IP=$1
+NUM_NODES=$2
+NUM_PROCESSES=$3
+
+echo "HOST_IP: ${HOST_IP}"
+echo "NUM_NODES: ${NUM_NODES}"
+echo "NUM_PROCESSES: ${NUM_PROCESSES}"
+
+MACHINE_RANK=$(hostname | sed 's/[^0-9]*//g')
+
+cat configs/deepspeed_config_z3.yaml.template \
+| sed "s/__MACHINE_RANK__/${MACHINE_RANK}/g" \
+| sed "s/__NUM_MACHINES__/${NUM_NODES}/g" \
+| sed "s/__NUM_PROCESSES__/${NUM_PROCESSES}/g" \
+> configs/deepspeed_config_z3.yaml
+
+/home/aiscuser/.local/bin/accelerate launch --main_process_ip ${HOST_IP} --main_process_port 12345 \
+--num_machines ${NUM_NODES} --num_processes ${NUM_PROCESSES} --machine_rank ${MACHINE_RANK} \
+--config_file "configs/deepspeed_config_z3.yaml"  train.py \
 --seed 100 \
 --model_name_or_path "meta-llama/Meta-Llama-3-70B" \
 --dataset_name "smangrul/ultrachat-10k-chatml" \
