@@ -17,7 +17,7 @@ TRANSFORMERS_DIR=/scratch/amlt_code/transformers
 echo "NUM_NODES: ${NUM_NODES}"
 
 for i in $(seq 1 $((${NUM_NODES} - 1))); do
-    rsync -av --exclude='.git' --exclude='__pycache__' -e ssh ${CODE_DIR}/ node-${i}:${CODE_DIR}/
+    rsync -av --exclude='.git' --exclude='__pycache__' --exclude='mlruns' --exclude='__runs__' -e ssh ${CODE_DIR}/ node-${i}:${CODE_DIR}/
     rsync -av --exclude='.git' --exclude='__pycache__' -e ssh ${DS_DIR}/ node-${i}:${DS_DIR}/
     rsync -av --exclude='.git' --exclude='__pycache__' -e ssh ${TRANSFORMERS_DIR}/ node-${i}:${TRANSFORMERS_DIR}/
 done
