@@ -7,6 +7,8 @@ from transformers import HfArgumentParser, TrainingArguments, set_seed
 from trl import SFTTrainer
 from utils import create_and_prepare_model, create_datasets
 
+import wandb
+from accelerate import Accelerator
 
 # Define and parse arguments.
 @dataclass
@@ -108,6 +110,19 @@ def main(model_args, data_args, training_args):
 
     # for benchmarking
     training_args.max_steps = 100
+    training_args.evaluation_strategy = "no"
+    training_args.save_strategy = "no"
+    training_args.report_to = "wandb"
+    training_args.logging_dir= "./logs"
+    training_args.logging_steps = 10
+
+    accelerator = Accelerator()
+    is_deepspeed = accelerator.state.deepspeed_plugin is not None
+    backend = "ds" if is_deepspeed else "fsdp"
+    model_name = model_args.model_name_or_path.split('/')[-1]
+    training_args.run_name = f"bench_{backend}_{model_name}_np{accelerator.num_processes}_bs{training_args.per_device_train_batch_size}_s{data_args.max_seq_length}"
+    print(f"Run name: {training_args.run_name}")
+    wandb.init(project="ds_benchmark")
 
     # gradient ckpt
     model.config.use_cache = not training_args.gradient_checkpointing
@@ -129,7 +144,7 @@ def main(model_args, data_args, training_args):
         tokenizer=tokenizer,
         args=training_args,
         train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
+        # eval_dataset=eval_dataset,
         peft_config=peft_config,
         packing=data_args.packing,
         dataset_kwargs={
