@@ -159,6 +159,7 @@ def main(model_args, data_args, training_args, benchmark_args):
             super().__init__(*args, **kwargs)
             self.args.compile = benchmark_args.compile
             self.args.profile = benchmark_args.profile
+            self.args.run_name = training_args.run_name
 
         def training_step(self, model, inputs):
             start_time = time.time()

@@ -1,8 +1,8 @@
 #!/bin/bash
 
 BACKEND="deepspeed"
-COMPILE_DS=0
 MODEL="Meta-Llama-3-8B"
+EXTRA_OPTS=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -12,6 +12,12 @@ while [[ $# -gt 0 ]]; do
             ;;
         --compile)
             COMPILE_DS=1
+            EXTRA_OPTS="${EXTRA_OPTS} $1"
+            shift
+            ;;
+        --profile)
+            PROFILE=1
+            EXTRA_OPTS="${EXTRA_OPTS} $1"
             shift
             ;;
         --model)
@@ -55,5 +61,5 @@ done
 HOST_IP=$(hostname -i)
 
 ds_ssh "pkill -u aiscuser -f [a]ccelerate"
-ds_ssh "cd /scratch/amlt_code/peft/examples/sft; bash ./${SCRIPT} ${HOST_IP} ${NUM_NODES} ${NUM_PROCESSES} ${MODEL} ${COMPILE_DS} \
+ds_ssh "cd /scratch/amlt_code/peft/examples/sft; bash ./${SCRIPT} ${HOST_IP} ${NUM_NODES} ${NUM_PROCESSES} ${MODEL} ${EXTRA_OPTS} \
     2>&1 | tee debug_${BACKEND}_np${NUM_PROCESSES}_c${COMPILE_DS}_${MODEL}.log"
