@@ -2,7 +2,9 @@ import os
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
+import time
 
+import torch
 from transformers import HfArgumentParser, TrainingArguments, set_seed
 from trl import SFTTrainer
 from utils import create_and_prepare_model, create_datasets
@@ -120,9 +122,13 @@ def main(model_args, data_args, training_args):
     is_deepspeed = accelerator.state.deepspeed_plugin is not None
     backend = "ds" if is_deepspeed else "fsdp"
     model_name = model_args.model_name_or_path.split('/')[-1]
-    training_args.run_name = f"bench_{backend}_{model_name}_np{accelerator.num_processes}_bs{training_args.per_device_train_batch_size}_s{data_args.max_seq_length}"
-    print(f"Run name: {training_args.run_name}")
-    wandb.init(project="ds_benchmark")
+    compile = os.environ.get("COMPILE_DS", "0")
+    timestamp = time.strftime("%Y%m%d%H%M%S")
+    training_args.run_name = f"bench_{backend}_{model_name}_np{accelerator.num_processes}_bs{training_args.per_device_train_batch_size}_s{data_args.max_seq_length}_c{compile}_t{timestamp}"
+
+    if accelerator.is_main_process:
+        print(f"Run name: {training_args.run_name}")
+        wandb.init(project="ds_benchmark", name=training_args.run_name, config=training_args.to_dict())
 
     # gradient ckpt
     model.config.use_cache = not training_args.gradient_checkpointing
@@ -138,8 +144,23 @@ def main(model_args, data_args, training_args):
         apply_chat_template=model_args.chat_template_format != "none",
     )
 
+    sync = True
+    class CustomTrainer(SFTTrainer):
+        def training_step(self, model, inputs):
+            start_time = time.time()
+            loss = super().training_step(model, inputs)
+            if sync:
+                torch.cuda.synchronize()
+            end_time = time.time()
+            
+            iteration_time = end_time - start_time
+            if accelerator.is_main_process:
+                wandb.log({"iteration_time": iteration_time})
+            
+            return loss
+        
     # trainer
-    trainer = SFTTrainer(
+    trainer = CustomTrainer(
         model=model,
         tokenizer=tokenizer,
         args=training_args,
