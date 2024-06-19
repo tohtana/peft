@@ -103,7 +103,16 @@ class DataTrainingArguments:
     )
 
 
-def main(model_args, data_args, training_args):
+@dataclass
+class BenchmarkArguments:
+    compile: Optional[bool] = field(
+        default=False,
+    )
+    profile: Optional[bool] = field(
+        default=False,
+    )
+
+def main(model_args, data_args, training_args, benchmark_args):
     # Set seed for reproducibility
     set_seed(training_args.seed)
 
@@ -122,7 +131,7 @@ def main(model_args, data_args, training_args):
     is_deepspeed = accelerator.state.deepspeed_plugin is not None
     backend = "ds" if is_deepspeed else "fsdp"
     model_name = model_args.model_name_or_path.split('/')[-1]
-    compile = os.environ.get("COMPILE_DS", "0")
+    compile = "1" if benchmark_args.compile else "0"
     timestamp = time.strftime("%Y%m%d%H%M%S")
     training_args.run_name = f"bench_{backend}_{model_name}_np{accelerator.num_processes}_bs{training_args.per_device_train_batch_size}_s{data_args.max_seq_length}_c{compile}_t{timestamp}"
 
@@ -146,6 +155,11 @@ def main(model_args, data_args, training_args):
 
     sync = True
     class CustomTrainer(SFTTrainer):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.args.compile = benchmark_args.compile
+            self.args.profile = benchmark_args.profile
+
         def training_step(self, model, inputs):
             start_time = time.time()
             loss = super().training_step(model, inputs)
@@ -191,11 +205,11 @@ def main(model_args, data_args, training_args):
 
 
 if __name__ == "__main__":
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments, BenchmarkArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-    main(model_args, data_args, training_args)
+        model_args, data_args, training_args, benchmark_args = parser.parse_args_into_dataclasses()
+    main(model_args, data_args, training_args, benchmark_args)
