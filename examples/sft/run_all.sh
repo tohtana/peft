@@ -1,14 +1,29 @@
 #!/bin/bash
 
-# add option
-# if --backend fsdp, run run_fsdp.sh, else run run_deepspeed_z3.sh
-# if --compile, set COMPILE_DS=1
-# Implement the options here
+BACKEND="deepspeed"
+COMPILE_DS=0
+MODEL="Meta-Llama-3-8B"
 
-
-
-BACKEND=${1:-deepspeed}
-MODEL=Meta-Llama-3-8B
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --backend)
+            BACKEND="$2"
+            shift 2
+            ;;
+        --compile)
+            COMPILE_DS=1
+            shift
+            ;;
+        --model)
+            MODEL="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
 
 SCRIPT=run_deepspeed_z3.sh
 if [ "${BACKEND}" == "fsdp" ]; then
@@ -40,4 +55,5 @@ done
 HOST_IP=$(hostname -i)
 
 ds_ssh "pkill -u aiscuser -f [a]ccelerate"
-ds_ssh "cd /scratch/amlt_code/peft/examples/sft; bash ./${SCRIPT} ${HOST_IP} ${NUM_NODES} ${NUM_PROCESSES} ${MODEL} 2>&1 | tee debug_${BACKEND}.log"
+ds_ssh "cd /scratch/amlt_code/peft/examples/sft; bash ./${SCRIPT} ${HOST_IP} ${NUM_NODES} ${NUM_PROCESSES} ${MODEL} ${COMPILE_DS} \
+    2>&1 | tee debug_${BACKEND}_np${NUM_PROCESSES}_c${COMPILE_DS}_${MODEL}.log"

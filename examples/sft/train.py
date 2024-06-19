@@ -106,6 +106,9 @@ def main(model_args, data_args, training_args):
     # model
     model, peft_config, tokenizer = create_and_prepare_model(model_args, data_args, training_args)
 
+    # for benchmarking
+    training_args.max_steps = 100
+
     # gradient ckpt
     model.config.use_cache = not training_args.gradient_checkpointing
     training_args.gradient_checkpointing = training_args.gradient_checkpointing and not model_args.use_unsloth
