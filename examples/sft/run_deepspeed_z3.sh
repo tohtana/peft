@@ -1,6 +1,7 @@
 HOST_IP=$1
 NUM_NODES=$2
 NUM_PROCESSES=$3
+MODEL=$4
 
 export NCCL_DEBUG=WARN
 
@@ -20,7 +21,7 @@ cat configs/deepspeed_config_z3.yaml.template \
 --num_machines ${NUM_NODES} --num_processes ${NUM_PROCESSES} --machine_rank ${MACHINE_RANK} \
 --config_file "configs/deepspeed_config_z3.yaml"  train.py \
 --seed 100 \
---model_name_or_path "/blob/projects/ds_rlhf/models/Meta-Llama-3-70B" \
+--model_name_or_path "/blob/projects/ds_rlhf/models/${MODEL}" \
 --dataset_name "smangrul/ultrachat-10k-chatml" \
 --chat_template_format "chatml" \
 --add_special_tokens False \
