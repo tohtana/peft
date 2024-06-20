@@ -5,12 +5,13 @@ from typing import Optional
 import time
 
 import torch
-from transformers import HfArgumentParser, TrainingArguments, set_seed
+from transformers import HfArgumentParser, TrainingArguments, set_seed, TrainerCallback
 from trl import SFTTrainer
 from utils import create_and_prepare_model, create_datasets
 
 import wandb
 from accelerate import Accelerator
+import deepspeed
 
 # Define and parse arguments.
 @dataclass
@@ -154,28 +155,59 @@ def main(model_args, data_args, training_args, benchmark_args):
     )
 
     sync = True
-    class CustomTrainer(SFTTrainer):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.args.compile = benchmark_args.compile
-            self.args.profile = benchmark_args.profile
-            self.args.run_name = training_args.run_name
+    class ProflingCallback(TrainerCallback):
+        def __init__(self):
+            self.is_compiled = False
 
-        def training_step(self, model, inputs):
-            start_time = time.time()
-            loss = super().training_step(model, inputs)
+        def on_train_begin(self, args: TrainingArguments, state, control, **kwargs):
+            self.do_profiling = benchmark_args.profile and accelerator.is_main_process
+            if self.do_profiling:
+                print(f"Profiling enabled")
+
+                prof_dir = f"/tmp/prof/{training_args.run_name}"
+                if os.path.exists(prof_dir):
+                    import shutil
+                    shutil.rmtree(prof_dir)
+                os.makedirs(prof_dir, exist_ok=True)
+
+                self.profile = torch.profiler.profile(
+                    activities=[
+                        torch.profiler.ProfilerActivity.CPU,
+                        torch.profiler.ProfilerActivity.CUDA,
+                    ],
+                    schedule=torch.profiler.schedule(wait=0, warmup=20, active=3, repeat=1),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(prof_dir),
+                )
+                self.profile.start()
+
+        def on_train_end(self, args: TrainingArguments, state, control, **kwargs):
+            if self.do_profiling:
+                self.profile.stop()
+
+        def on_step_begin(self, args, state, control, **kwargs):
+            assert "model" in kwargs
+            model = kwargs["model"]
+            if isinstance(model, deepspeed.DeepSpeedEngine) and benchmark_args.compile and not self.is_compiled:
+                print(f"Compiling model")
+                model.compile()
+                self.is_compiled = True
+
+            self.start_iter_time = time.time()
+
+        def on_step_end(self, args, state, control, **kwargs):
             if sync:
                 torch.cuda.synchronize()
-            end_time = time.time()
-            
-            iteration_time = end_time - start_time
+            self.end_iter_time = time.time()
+
+            if self.do_profiling:
+                self.profile.step()
+
+            iteration_time = self.end_iter_time - self.start_iter_time
             if accelerator.is_main_process:
                 wandb.log({"iteration_time": iteration_time})
-            
-            return loss
-        
+
     # trainer
-    trainer = CustomTrainer(
+    trainer = SFTTrainer(
         model=model,
         tokenizer=tokenizer,
         args=training_args,
@@ -190,6 +222,8 @@ def main(model_args, data_args, training_args, benchmark_args):
         dataset_text_field=data_args.dataset_text_field,
         max_seq_length=data_args.max_seq_length,
     )
+    trainer.add_callback(ProflingCallback())
+
     trainer.accelerator.print(f"{trainer.model}")
     # trainer.model.print_trainable_parameters()
 
