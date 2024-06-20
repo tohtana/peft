@@ -155,11 +155,33 @@ def main(model_args, data_args, training_args, benchmark_args):
     )
 
     sync = True
+
+    # trainer
+    trainer = SFTTrainer(
+        model=model,
+        tokenizer=tokenizer,
+        args=training_args,
+        train_dataset=train_dataset,
+        peft_config=peft_config,
+        packing=data_args.packing,
+        dataset_kwargs={
+            "append_concat_token": data_args.append_concat_token,
+            "add_special_tokens": data_args.add_special_tokens,
+        },
+        dataset_text_field=data_args.dataset_text_field,
+        max_seq_length=data_args.max_seq_length,
+    )
+
     class ProflingCallback(TrainerCallback):
-        def __init__(self):
-            self.is_compiled = False
+        def __init__(self, trainer):
+            self.trainer = trainer
 
         def on_train_begin(self, args: TrainingArguments, state, control, **kwargs):
+
+            if isinstance(self.trainer.model_wrapped, deepspeed.DeepSpeedEngine) and benchmark_args.compile:
+                print(f"Compiling model")
+                self.trainer.model_wrapped.compile()
+
             self.do_profiling = benchmark_args.profile and accelerator.is_main_process
             if self.do_profiling:
                 print(f"Profiling enabled")
@@ -185,13 +207,6 @@ def main(model_args, data_args, training_args, benchmark_args):
                 self.profile.stop()
 
         def on_step_begin(self, args, state, control, **kwargs):
-            assert "model" in kwargs
-            model = kwargs["model"]
-            if isinstance(model, deepspeed.DeepSpeedEngine) and benchmark_args.compile and not self.is_compiled:
-                print(f"Compiling model")
-                model.compile()
-                self.is_compiled = True
-
             self.start_iter_time = time.time()
 
         def on_step_end(self, args, state, control, **kwargs):
@@ -206,23 +221,7 @@ def main(model_args, data_args, training_args, benchmark_args):
             if accelerator.is_main_process:
                 wandb.log({"iteration_time": iteration_time})
 
-    # trainer
-    trainer = SFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        args=training_args,
-        train_dataset=train_dataset,
-        # eval_dataset=eval_dataset,
-        peft_config=peft_config,
-        packing=data_args.packing,
-        dataset_kwargs={
-            "append_concat_token": data_args.append_concat_token,
-            "add_special_tokens": data_args.add_special_tokens,
-        },
-        dataset_text_field=data_args.dataset_text_field,
-        max_seq_length=data_args.max_seq_length,
-    )
-    trainer.add_callback(ProflingCallback())
+    trainer.add_callback(ProflingCallback(trainer))
 
     trainer.accelerator.print(f"{trainer.model}")
     # trainer.model.print_trainable_parameters()
